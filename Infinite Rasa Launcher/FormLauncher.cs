@@ -22,13 +22,22 @@ namespace Infinite_Rasa_Launcher
         private Char   RootIndexServerSeparator = '\n';
         private Char   RootIndexServerDataSeparator = ';';
 
-        private const String TabulaRasaExe = "tabula_rasa.exe";
-        private const String TabulaRasaParams = "/NoPatch /AuthServer=";
 
         private List<ServerInfo> Servers;
         private Patcher patcher;
         private LaunchSettings settings;
         private LinkLabel linkSettings;
+
+        /// <summary>
+        /// Mono scales the fixed-size background layout by its own default font, which breaks it.
+        /// The designer sets this inside InitializeComponent, where the scaling also happens,
+        /// so on Unix the value is replaced here. Windows keeps the designer value (Font).
+        /// </summary>
+        public new AutoScaleMode AutoScaleMode
+        {
+            get { return base.AutoScaleMode; }
+            set { base.AutoScaleMode = LaunchSettings.IsUnix ? AutoScaleMode.None : value; }
+        }
 
         public FormLauncher()
         {
@@ -58,9 +67,8 @@ namespace Infinite_Rasa_Launcher
             buttonPlay.MouseLeave += new EventHandler(buttonPlay_MouseLeave);
             ServerIndexListBox.DoubleClick += new EventHandler(ServerIndexListBox_DoubleClick);
 
-            // always add localhost option
-            ServerInfo localhostInfo = new ServerInfo("Play in localhost", "127.0.0.1", 2106, "", "");
-            Servers.Add(localhostInfo);
+            // always add the user's own server (Settings > Server, default localhost)
+            Servers.Add(OwnServer());
 
             // if theres a config file, get the root index url from it
             if (File.Exists(ConfigFile))
@@ -93,7 +101,12 @@ namespace Infinite_Rasa_Launcher
                 }
             }
 
-            // add the server names to the listbox; localhost stays playable even without an index
+            else
+            {
+                pictureBoxNoServersFound.Visible = true;
+            }
+
+            // add the server names to the listbox; the own server stays playable even without an index
             foreach(ServerInfo server in Servers)
             {
                 ServerIndexListBox.Items.Add(server.Name);
@@ -128,34 +141,53 @@ namespace Infinite_Rasa_Launcher
             }
             else
             {
-                string AuthServer = host + ":" + port.ToString();
-
                 try { 
-                    GameRunner.Start(settings, TabulaRasaExe, TabulaRasaParams + AuthServer); 
+                    GameRunner.Start(settings, host, port.ToString()); 
                 }
                 catch (Exception ex) 
                 { 
-                    MessageBox.Show("Error starting " + TabulaRasaExe + " (" + settings.Mode + " mode):\n" + ex.Message, "Wait"); 
+                    MessageBox.Show("Error starting " + settings.GameExe + " (" + settings.Mode + " mode):\n" + ex.Message, "Wait"); 
                 }
                 this.Close();
             }
         }
 
+        private ServerInfo OwnServer()
+        {
+            String host;
+            Int16 port;
+            if (!settings.TryGetServer(out host, out port)) { host = "127.0.0.1"; port = 2106; }
+            return new ServerInfo("Play on " + host + ":" + port, host, port, "", "");
+        }
+
         private bool ShowSettings()
         {
-            using (FormSettings form = new FormSettings(settings, TabulaRasaExe))
+            using (FormSettings form = new FormSettings(settings))
             {
-                return form.ShowDialog(this) == DialogResult.OK;
+                if (form.ShowDialog(this) != DialogResult.OK) { return false; }
             }
+
+            // the own server entry follows the settings
+            Servers[0] = OwnServer();
+            if (ServerIndexListBox.Items.Count > 0)
+            {
+                // Mono may clear the selection when an item is replaced
+                int selected = ServerIndexListBox.SelectedIndex;
+                ServerIndexListBox.Items[0] = Servers[0].Name;
+                ServerIndexListBox.SelectedIndex = selected;
+            }
+            return true;
         }
 
         private void buttonPlay_Click(object sender, EventArgs e)
         {
-            List<String> problems = settings.Validate(TabulaRasaExe);
+            if (ServerIndexListBox.SelectedIndex < 0) { return; }
+
+            List<String> problems = settings.Validate();
             if (problems.Count > 0)
             {
                 MessageBox.Show(String.Join("\n", problems.ToArray()) + "\n\nPlease check the launcher settings.", "Settings");
-                if (!ShowSettings() || settings.Validate(TabulaRasaExe).Count > 0) { return; }
+                if (!ShowSettings() || settings.Validate().Count > 0) { return; }
             }
 
             // the patcher works with paths relative to the game directory

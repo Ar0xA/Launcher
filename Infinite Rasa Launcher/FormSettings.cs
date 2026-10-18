@@ -11,10 +11,14 @@ namespace Infinite_Rasa_Launcher
     public class FormSettings : Form
     {
         private readonly LaunchSettings settings;
-        private readonly String exeName;
 
         private ComboBox comboMode;
         private TextBox  textGameDir;
+        private TextBox  textGameExe;
+        private TextBox  textGameArgs;
+        private TextBox  textWorkDir;
+        private Label    labelCommand;
+        private TextBox  textServer;
         private GroupBox groupWine;
         private TextBox  textWinePath;
         private TextBox  textWinePrefix;
@@ -25,10 +29,9 @@ namespace Infinite_Rasa_Launcher
         private ComboBox comboLutrisConfig;
         private Label    labelLutrisStatus;
 
-        public FormSettings(LaunchSettings settings, String exeName)
+        public FormSettings(LaunchSettings settings)
         {
             this.settings = settings;
-            this.exeName = exeName;
             BuildLayout();
             LoadValues();
         }
@@ -55,14 +58,54 @@ namespace Infinite_Rasa_Launcher
             y = AddRow(this, y, "Launch mode:", comboMode, null);
 
             textGameDir = NewTextBox();
-            y = AddRow(this, y, "Game directory:", textGameDir, BrowseFolderButton(textGameDir, "Folder containing " + exeName));
-            y = AddNote(this, y, "Folder with " + exeName + ". Patches are downloaded here.\n" +
-                                 "Empty = the launcher's working directory.");
+            y = AddRow(this, y, "Game directory:", textGameDir, BrowseFolderButton(textGameDir, "Tabula Rasa folder"));
+            y = AddNote(this, y, "Patches are downloaded here. Empty = the launcher's working directory.");
+
+            textServer = new TextBox();
+            textServer.Width = 200;
+            y = AddRow(this, y, "Server:", textServer, null);
+            y = AddNote(this, y, "host:port of your own server. Listed first in the server list (default " + LaunchSettings.DefaultServerAddress + ").");
+
+            // game options, used by every launch mode (in Lutris mode they are written to the game config)
+            GroupBox groupGame = NewGroup("Game options (Direct, Wine and Lutris)", y);
+            int gy = 22;
+            textGameExe = NewTextBox();
+            gy = AddRow(groupGame, gy, "Executable:", textGameExe, BrowseFileButton(textGameExe, "Game executable", "Programs (*.exe)|*.exe|All files|*"));
+            textGameArgs = NewTextBox();
+            Button resetArgs = NewButton("Default");
+            resetArgs.Click += delegate
+            {
+                textGameExe.Text = LaunchSettings.DefaultGameExe;
+                textGameArgs.Text = LaunchSettings.DefaultGameArguments;
+                textWorkDir.Text = "";
+            };
+            gy = AddRow(groupGame, gy, "Arguments:", textGameArgs, resetArgs);
+            textWorkDir = NewTextBox();
+            gy = AddRow(groupGame, gy, "Working dir:", textWorkDir, BrowseFolderButton(textWorkDir, "Working directory"));
+            gy = AddNote(groupGame, gy, "Executable and working dir may be relative to the game directory.\n" +
+                                        "Empty working dir = the game directory. In arguments, {host},\n" +
+                                        "{port} and {server} (host:port) are replaced by the selected server.");
+            labelCommand = NewLabel("", Edge, gy - 4, FormWidth - 3 * Edge, 2);
+            labelCommand.ForeColor = Color.DarkSlateBlue;
+            groupGame.Controls.Add(labelCommand);
+            gy += 2 * LineHeight + 4;
+            groupGame.Height = gy + 4;
+            Controls.Add(groupGame);
+            y = groupGame.Bottom + 10;
+
+            EventHandler preview = delegate { UpdateCommandPreview(); };
+            textGameDir.TextChanged += preview;
+            textGameExe.TextChanged += preview;
+            textGameArgs.TextChanged += preview;
+            textWorkDir.TextChanged += preview;
+            textServer.TextChanged += preview;
+            comboMode.SelectedIndexChanged += preview;
 
             // wine
             groupWine = NewGroup("Wine", y);
-            int gy = 22;
+            gy = 22;
             textWinePath = NewTextBox();
+            textWinePath.TextChanged += preview;
             gy = AddRow(groupWine, gy, "Wine binary:", textWinePath, BrowseFileButton(textWinePath, "Wine binary", "All files|*"));
             textWinePrefix = NewTextBox();
             gy = AddRow(groupWine, gy, "Wine prefix:", textWinePrefix, BrowseFolderButton(textWinePrefix, "WINEPREFIX directory"));
@@ -93,10 +136,10 @@ namespace Infinite_Rasa_Launcher
             labelLutrisStatus = NewLabel("", FieldX, gy, FieldWidth + ButtonWidth, 1);
             groupLutris.Controls.Add(labelLutrisStatus);
             gy += 22;
-            gy = AddNote(groupLutris, gy, "Before each launch the game config is rewritten to run " + exeName + "\n" +
-                                          "with the selected server (exe, args, working_dir). The original\n" +
-                                          "is kept once as <config>" + Lutris.BackupSuffix + ". Wine version, prefix and\n" +
-                                          "other options are used as configured in Lutris.");
+            gy = AddNote(groupLutris, gy, "Before each launch, exe, args and working_dir in the game config are\n" +
+                                          "set from the game options above. The original is kept once as\n" +
+                                          "<config>" + Lutris.BackupSuffix + ". Wine version, prefix and other options\n" +
+                                          "are used as configured in Lutris.");
             groupLutris.Height = gy + 4;
             Controls.Add(groupLutris);
             y = groupLutris.Bottom + 10;
@@ -123,6 +166,10 @@ namespace Infinite_Rasa_Launcher
         {
             comboMode.SelectedItem = settings.Mode;
             textGameDir.Text = settings.GameDirectory;
+            textGameExe.Text = settings.GameExe;
+            textGameArgs.Text = settings.GameArguments;
+            textWorkDir.Text = settings.WorkingDirectory;
+            textServer.Text = settings.ServerAddress;
             textWinePath.Text = settings.WinePath;
             textWinePrefix.Text = settings.WinePrefix;
             textLutrisCommand.Text = settings.LutrisCommand;
@@ -166,7 +213,10 @@ namespace Infinite_Rasa_Launcher
                 try { games = Lutris.ListGames(command); }
                 catch (Exception ex) { error = ex; }
 
-                BeginInvoke((MethodInvoker)delegate { OnGamesDetected(command, games, error); });
+                // the dialog may be closed while Lutris is still answering
+                if (IsDisposed || !IsHandleCreated) { return; }
+                try { BeginInvoke((MethodInvoker)delegate { OnGamesDetected(command, games, error); }); }
+                catch (InvalidOperationException) { }
             });
         }
 
@@ -216,16 +266,21 @@ namespace Infinite_Rasa_Launcher
             else if (configs.Count > 1) { labelLutrisStatus.Text = configs.Count + " config files match. Check the selection."; }
 
             if (textGameDir.Text == "" && !String.IsNullOrEmpty(game.Directory) &&
-                File.Exists(Path.Combine(game.Directory, exeName)))
+                File.Exists(Path.Combine(game.Directory, textGameExe.Text)))
             {
                 textGameDir.Text = game.Directory;
             }
         }
 
-        private void buttonOk_Click(object sender, EventArgs e)
+        /// <summary>The settings as currently entered in the dialog.</summary>
+        private LaunchSettings ReadForm()
         {
             LaunchSettings edited = new LaunchSettings();
-            edited.Mode = (LaunchMode)comboMode.SelectedItem;
+            edited.GameExe = textGameExe.Text.Trim();
+            edited.GameArguments = textGameArgs.Text.Trim();
+            edited.WorkingDirectory = textWorkDir.Text.Trim();
+            edited.ServerAddress = textServer.Text.Trim();
+            edited.Mode = comboMode.SelectedItem is LaunchMode ? (LaunchMode)comboMode.SelectedItem : LaunchMode.Direct;
             edited.GameDirectory = textGameDir.Text.Trim();
             edited.WinePath = textWinePath.Text.Trim();
             edited.WinePrefix = textWinePrefix.Text.Trim();
@@ -235,7 +290,31 @@ namespace Infinite_Rasa_Launcher
             edited.LutrisGameId = game == null ? "" : game.Id.ToString();
             edited.LutrisGameName = game == null ? "" : game.Name;
 
-            List<String> problems = edited.Validate(exeName);
+            return edited;
+        }
+
+        private void UpdateCommandPreview()
+        {
+            if (labelCommand == null || comboMode.SelectedItem == null) { return; }
+            LaunchSettings edited = ReadForm();
+            String host;
+            Int16 port;
+            if (!edited.TryGetServer(out host, out port)) { host = "<host>"; }
+            String command = Quote(edited.EffectiveExePath) + " " + edited.ExpandArguments(host, port.ToString());
+            if (edited.Mode == LaunchMode.Wine) { command = edited.WinePath + " " + command; }
+            if (edited.Mode == LaunchMode.Lutris) { command = "Lutris: " + command; }
+            labelCommand.Text = "Runs (own server): " + command + "\nin: " + edited.EffectiveWorkingDirectory;
+        }
+
+        private static String Quote(String value)
+        {
+            return value.Contains(" ") ? "\"" + value + "\"" : value;
+        }
+
+        private void buttonOk_Click(object sender, EventArgs e)
+        {
+            LaunchSettings edited = ReadForm();
+            List<String> problems = edited.Validate();
             if (problems.Count > 0)
             {
                 DialogResult answer = MessageBox.Show(this, String.Join("\n", problems.ToArray()) + "\n\nSave anyway?",
@@ -245,6 +324,10 @@ namespace Infinite_Rasa_Launcher
 
             settings.Mode = edited.Mode;
             settings.GameDirectory = edited.GameDirectory;
+            settings.GameExe = edited.GameExe;
+            settings.GameArguments = edited.GameArguments;
+            settings.WorkingDirectory = edited.WorkingDirectory;
+            settings.ServerAddress = edited.ServerAddress;
             settings.WinePath = edited.WinePath;
             settings.WinePrefix = edited.WinePrefix;
             settings.LutrisCommand = edited.LutrisCommand;

@@ -20,6 +20,7 @@ namespace Infinite_Rasa_Launcher
 
         public override String ToString()
         {
+            if (Slug == "saved") { return Name + "  [id " + Id + "]"; } // from settings, before "Detect games"
             return Name + "  [" + Slug + ", id " + Id + ", " + Runner + "]";
         }
     }
@@ -164,36 +165,57 @@ namespace Infinite_Rasa_Launcher
                 gameLine = lines.Count - 1;
             }
 
-            // remove the keys we own (and any continuation lines of multi-line values) from the game block
+            // the game block's keys use the indent of its first line (Lutris writes 2, but users may not)
+            int childIndent = 2;
+            for (int j = gameLine + 1; j < lines.Count; j++)
+            {
+                if (lines[j].Trim() == "") { continue; }
+                if (IndentOf(lines[j]) > 0) { childIndent = IndentOf(lines[j]); }
+                break;
+            }
+
+            // remove the keys we own (and any continuation lines of multi-line values) from the game block;
+            // only keys at the block's own indent count, so nested keys (e.g. in launch_configs) stay
             int i = gameLine + 1;
             while (i < lines.Count && (lines[i].Trim() == "" || Char.IsWhiteSpace(lines[i][0])))
             {
                 String trimmed = lines[i].TrimStart();
-                int indent = lines[i].Length - trimmed.Length;
                 bool owned = false;
-                foreach (String key in keys)
+                if (trimmed != "" && IndentOf(lines[i]) == childIndent)
                 {
-                    if (trimmed.StartsWith(key + ":")) { owned = true; break; }
+                    foreach (String key in keys)
+                    {
+                        if (trimmed.StartsWith(key + ":")) { owned = true; break; }
+                    }
                 }
 
                 if (!owned) { i++; continue; }
 
-                lines.RemoveAt(i);
-                while (i < lines.Count && lines[i].Trim() != "" &&
-                       lines[i].Length - lines[i].TrimStart().Length > indent)
+                // continuation lines are deeper; blank lines inside a block scalar belong to it too
+                int end = i + 1;
+                int last = i;
+                while (end < lines.Count && (lines[end].Trim() == "" || IndentOf(lines[end]) > childIndent))
                 {
-                    lines.RemoveAt(i);
+                    if (lines[end].Trim() != "") { last = end; }
+                    end++;
                 }
+                lines.RemoveRange(i, last - i + 1);
             }
 
-            lines.Insert(gameLine + 1, "  exe: " + YamlQuote(exe));
-            lines.Insert(gameLine + 2, "  args: " + YamlQuote(arguments));
-            lines.Insert(gameLine + 3, "  working_dir: " + YamlQuote(workingDir));
+            String pad = new String(' ', childIndent);
+            lines.Insert(gameLine + 1, pad + "exe: " + YamlQuote(exe));
+            lines.Insert(gameLine + 2, pad + "args: " + YamlQuote(arguments));
+            lines.Insert(gameLine + 3, pad + "working_dir: " + YamlQuote(workingDir));
 
             String tmp = ymlPath + ".tmp";
             File.WriteAllText(tmp, String.Join("\n", lines.ToArray()) + "\n");
             File.Copy(tmp, ymlPath, true);
             File.Delete(tmp);
+        }
+
+        private static int IndentOf(String line)
+        {
+            return line.Length - line.TrimStart().Length;
         }
 
         private static String YamlQuote(String value)

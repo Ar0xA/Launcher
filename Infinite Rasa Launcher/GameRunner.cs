@@ -7,16 +7,17 @@ namespace Infinite_Rasa_Launcher
     /// <summary>Starts the game client according to the configured LaunchMode.</summary>
     public static class GameRunner
     {
-        public static void Start(LaunchSettings settings, String exeName, String arguments)
+        public static void Start(LaunchSettings settings, String host, String port)
         {
-            String gameDir = settings.EffectiveGameDirectory;
-            String exePath = Path.Combine(gameDir, exeName);
+            String exePath = settings.EffectiveExePath;
+            String workDir = settings.EffectiveWorkingDirectory;
+            String arguments = settings.ExpandArguments(host, port);
             ProcessStartInfo info;
 
             switch (settings.Mode)
             {
                 case LaunchMode.Lutris:
-                    Lutris.UpdateGameConfig(settings.LutrisConfigFile, exePath, arguments, gameDir);
+                    Lutris.UpdateGameConfig(settings.LutrisConfigFile, exePath, arguments, workDir);
                     Lutris.Run(settings.LutrisCommand, settings.LutrisGameId);
                     return;
 
@@ -31,11 +32,12 @@ namespace Infinite_Rasa_Launcher
 
                 default:
                     info = new ProcessStartInfo(exePath, arguments);
-                    info.UseShellExecute = false;
+                    // ShellExecute on Windows, as before: it shows the UAC prompt for exes that need elevation
+                    info.UseShellExecute = !LaunchSettings.IsUnix;
                     break;
             }
 
-            info.WorkingDirectory = gameDir;
+            info.WorkingDirectory = workDir;
             Process.Start(info);
         }
 

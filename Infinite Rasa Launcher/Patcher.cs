@@ -103,7 +103,8 @@ namespace Infinite_Rasa_Launcher
         private void HandleMyself(String filename)
         {
             String myname = System.AppDomain.CurrentDomain.FriendlyName;
-            if (filename == myname)
+            // the launcher may live outside the game directory (Settings > Game directory)
+            if (filename == myname && File.Exists(myname))
             {
                 File.Move(myname, myname + ".bak");
             }
