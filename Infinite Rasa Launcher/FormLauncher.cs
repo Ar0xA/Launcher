@@ -27,11 +27,30 @@ namespace Infinite_Rasa_Launcher
 
         private List<ServerInfo> Servers;
         private Patcher patcher;
+        private LaunchSettings settings;
+        private LinkLabel linkSettings;
 
         public FormLauncher()
         {
             InitializeComponent();
             Servers = new List<ServerInfo>();
+            settings = LaunchSettings.Load();
+
+            // Mono ignores TransparencyKey, so cut the window to the background image's shape instead
+            if (LaunchSettings.IsUnix && this.BackgroundImage is Bitmap)
+            {
+                this.Region = RegionFromAlpha((Bitmap)this.BackgroundImage);
+            }
+
+            linkSettings = new LinkLabel();
+            linkSettings.Text = "Settings";
+            linkSettings.AutoSize = true;
+            linkSettings.BackColor = Color.Transparent;
+            linkSettings.LinkColor = Color.FromArgb(30, 172, 199);
+            linkSettings.ActiveLinkColor = Color.Cyan;
+            linkSettings.Location = new Point(110, 380);
+            linkSettings.LinkClicked += delegate { ShowSettings(); };
+            this.Controls.Add(linkSettings);
 
             buttonExit.MouseEnter += new EventHandler(buttonExit_MouseEnter);
             buttonExit.MouseLeave += new EventHandler(buttonExit_MouseLeave);
@@ -72,17 +91,30 @@ namespace Infinite_Rasa_Launcher
                     ServerInfo serverInfo = new ServerInfo(data[0], data[3], Int16.Parse(data[4]), data[2], data[1]);
                     Servers.Add(serverInfo);
                 }
+            }
 
-                // add the server names to the listbox
-                foreach(ServerInfo server in Servers)
+            // add the server names to the listbox; localhost stays playable even without an index
+            foreach(ServerInfo server in Servers)
+            {
+                ServerIndexListBox.Items.Add(server.Name);
+            }
+        }
+
+        private static Region RegionFromAlpha(Bitmap image)
+        {
+            Region region = new Region(Rectangle.Empty);
+            for (int y = 0; y < image.Height; y++)
+            {
+                int x = 0;
+                while (x < image.Width)
                 {
-                    ServerIndexListBox.Items.Add(server.Name);
+                    while (x < image.Width && image.GetPixel(x, y).A == 0) { x++; }
+                    int start = x;
+                    while (x < image.Width && image.GetPixel(x, y).A != 0) { x++; }
+                    if (x > start) { region.Union(new Rectangle(start, y, x - start, 1)); }
                 }
             }
-            else
-            {
-                pictureBoxNoServersFound.Visible = true;
-            }
+            return region;
         }
 
         delegate void RunCallback(String host, Int16 port);
@@ -97,23 +129,38 @@ namespace Infinite_Rasa_Launcher
             else
             {
                 string AuthServer = host + ":" + port.ToString();
-                Process TabulaRasa = new Process();
-                TabulaRasa.StartInfo.FileName = TabulaRasaExe;
-                TabulaRasa.StartInfo.Arguments = TabulaRasaParams + AuthServer;
 
                 try { 
-                    TabulaRasa.Start(); 
+                    GameRunner.Start(settings, TabulaRasaExe, TabulaRasaParams + AuthServer); 
                 }
-                catch (Exception) 
+                catch (Exception ex) 
                 { 
-                    MessageBox.Show("Error starting " + TabulaRasaExe, "Wait"); 
+                    MessageBox.Show("Error starting " + TabulaRasaExe + " (" + settings.Mode + " mode):\n" + ex.Message, "Wait"); 
                 }
                 this.Close();
             }
         }
 
+        private bool ShowSettings()
+        {
+            using (FormSettings form = new FormSettings(settings, TabulaRasaExe))
+            {
+                return form.ShowDialog(this) == DialogResult.OK;
+            }
+        }
+
         private void buttonPlay_Click(object sender, EventArgs e)
         {
+            List<String> problems = settings.Validate(TabulaRasaExe);
+            if (problems.Count > 0)
+            {
+                MessageBox.Show(String.Join("\n", problems.ToArray()) + "\n\nPlease check the launcher settings.", "Settings");
+                if (!ShowSettings() || settings.Validate(TabulaRasaExe).Count > 0) { return; }
+            }
+
+            // the patcher works with paths relative to the game directory
+            Directory.SetCurrentDirectory(settings.EffectiveGameDirectory);
+
             ServerIndexListBox.Enabled = false;
 
             ServerInfo info = Servers[ServerIndexListBox.SelectedIndex];
@@ -279,6 +326,13 @@ namespace Infinite_Rasa_Launcher
         // patcher callbacks
         private void onFailedPatching()
         {
+            // called from the patcher thread; dialogs from a non-UI thread crash Mono's X11 backend
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new SetVisibleCallback(onFailedPatching));
+                return;
+            }
+
             System.Windows.Forms.DialogResult wat;
             wat = System.Windows.Forms.MessageBox.Show("Selected server doesnt support patching.\nRun anyway?",
                                                        "Warning", 
@@ -294,6 +348,12 @@ namespace Infinite_Rasa_Launcher
 
         private void  onFinishedPatching()
         {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new SetVisibleCallback(onFinishedPatching));
+                return;
+            }
+
             setFile("Done");
             ServerIndexListBox.Enabled = true;
             RunGame(patcher.Info.Host, patcher.Info.Port);

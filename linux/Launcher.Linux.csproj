@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Linux build of the original .NET Framework WinForms project, using the .NET SDK.
+       Output is a .NET Framework exe: run it with Mono (`mono Launcher.exe`) or Wine. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- net472: System.Resources.Extensions (needed to embed the bitmap resources
+         from a non-Windows build) requires net461+. Mono 6.x supports 4.7.2. -->
+    <TargetFramework>net472</TargetFramework>
+    <RootNamespace>Infinite_Rasa_Launcher</RootNamespace>
+    <AssemblyName>Launcher</AssemblyName>
+    <ApplicationIcon>../Infinite Rasa Launcher/icon_b.ico</ApplicationIcon>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Src>../Infinite Rasa Launcher/</Src>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(Src)*.cs;$(Src)Properties/*.cs" />
+    <EmbeddedResource Include="$(Src)FormLauncher.resx">
+      <DependentUpon>FormLauncher.cs</DependentUpon>
+      <LogicalName>Infinite_Rasa_Launcher.FormLauncher.resources</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(Src)Properties/Resources.resx">
+      <LogicalName>Infinite_Rasa_Launcher.Properties.Resources.resources</LogicalName>
+    </EmbeddedResource>
+    <None Include="$(Src)app.config" Link="app.config" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Deployment" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Runtime.Serialization" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
+  </ItemGroup>
+</Project>

@@ -53,7 +53,7 @@ namespace Infinite_Rasa_Launcher
             { 
                 result = wb.DownloadString(FilesUri + "/" + FilesIndex); 
             }
-            catch (WebException)
+            catch (Exception) // WebException, or a bad/empty patcher uri (e.g. the localhost entry)
             {
                 if (OnFailedPatching != null) { OnFailedPatching(); }
                 return; 
