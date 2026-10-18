@@ -24,8 +24,8 @@ namespace Infinite_Rasa_Launcher
 
         public bool Verify()
         {
-            bool safe = false;
-            safe &= (Website.StartsWith("http://") && Website.StartsWith("https://"));
+            bool safe = true;
+            safe &= (Website.StartsWith("http://") || Website.StartsWith("https://"));
             // ToDo something about the patcher uri?
             return safe;
         }
