@@ -157,7 +157,10 @@ namespace Infinite_Rasa_Launcher
             String host;
             Int16 port;
             if (!settings.TryGetServer(out host, out port)) { host = "127.0.0.1"; port = 2106; }
-            return new ServerInfo("Play on " + host + ":" + port, host, port, "", "");
+            // keep the original label unless the user points it at another machine
+            bool local = host == "127.0.0.1" || host.Equals("localhost", StringComparison.OrdinalIgnoreCase);
+            String name = local ? "Play in localhost" : "Play on " + host + ":" + port;
+            return new ServerInfo(name, host, port, "", "");
         }
 
         private bool ShowSettings()
